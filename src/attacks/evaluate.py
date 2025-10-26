@@ -34,17 +34,15 @@ class AdvFolderDataset(Dataset):
         if len(self.filepaths) == 0:
             raise FileNotFoundError(f"No images matching {pattern} found in {folder}")
 
-        # class_names may be provided (list of strings). If not, we will try to get them from data_dir.
         self.class_names = class_names
         if self.class_names is None and data_dir is not None and get_dataloaders is not None:
             try:
                 _, _, _, self.class_names = get_dataloaders(data_dir=data_dir, batch_size=1)
             except Exception:
-                # leave as None; numeric labels will still work
                 self.class_names = None
 
-        # Defer parsing labels until we have class_names (so we can map names->indices)
-        self.labels_parsed = None  # will be filled by parse_labels(class_names) below
+       
+        self.labels_parsed = None 
 
     def __len__(self):
         return len(self.filepaths)
@@ -56,18 +54,14 @@ class AdvFolderDataset(Dataset):
         """
         base = os.path.basename(fname)
 
-        # 1) look for numeric: 'true123' or '_true123_' or 'true-123'
         m = re.search(r"true[_\-]?(\d+)", base, flags=re.IGNORECASE)
         if m:
             return int(m.group(1))
 
-        # 2) look for 'trueClassName' or 'true_ClassName' or 'true-ClassName' or 'true.ClassName'
-        # capture chunk after 'true' and before next separator (_,-,., or end)
         m = re.search(r"true[_\-\.\s]?([A-Za-z0-9]+)", base, flags=re.IGNORECASE)
         if m:
             return m.group(1)
 
-        # 3) as fallback, look for pattern 'label{NAME}' or 'true-{NAME}'
         m = re.search(r"(?:label|true)[_\-\.:]?([A-Za-z0-9]+)", base, flags=re.IGNORECASE)
         if m:
             return m.group(1)
@@ -85,13 +79,10 @@ class AdvFolderDataset(Dataset):
             if isinstance(raw, int):
                 labels.append(raw)
             else:
-                # raw is a class name string
                 if self.class_names is not None:
-                    # try exact match; if not found, try case-insensitive match
                     if raw in self.class_names:
                         labels.append(self.class_names.index(raw))
                     else:
-                        # case-insensitive try
                         lowered = [c.lower() for c in self.class_names]
                         try:
                             labels.append(lowered.index(raw.lower()))
@@ -172,7 +163,10 @@ def evaluate_adv(
 
     adv_ds = AdvFolderDataset(adv_folder, transform=transform, pattern=image_pattern, class_names=class_names, data_dir=data_dir)
     adv_loader = DataLoader(adv_ds, batch_size=batch_size, shuffle=False, num_workers=2)
-
+    
+    if class_names is None:
+        class_names = [str(i) for i in range(max(adv_ds.parse_labels()) + 1)]
+        
     if model_name == "simplecnn":
         model = SimpleCNN(num_classes=num_classes)
     elif model_name == "resnet18":
@@ -180,8 +174,6 @@ def evaluate_adv(
     else:
         raise ValueError(f"Unsupported model_name: {model_name}")
 
-    if class_names is None:
-        class_names = [str(i) for i in range(max(adv_ds.parse_labels()) + 1)]
 
     num_classes = len(class_names)
     model.fc = nn.Linear(model.fc.in_features, num_classes)

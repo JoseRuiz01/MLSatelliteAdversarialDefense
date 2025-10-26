@@ -17,17 +17,18 @@ def evaluate_model(model_path, data_dir="data/raw", batch_size=32, model_name="r
     if device is None:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
+        _, _, test_loader, class_names = get_dataloaders(data_dir=data_dir, batch_size=batch_size)
+    num_classes = len(class_names)
+    
     # === Load model ===
     if model_name == "simplecnn":
         model = SimpleCNN(num_classes=num_classes)
     elif model_name == "resnet18":
         model = models.resnet18(weights=models.ResNet18_Weights.DEFAULT)
+        model.fc = nn.Linear(model.fc.in_features, num_classes)
     else:
         raise ValueError(f"Unsupported model: {model_name}")
     
-    _, _, test_loader, class_names = get_dataloaders(data_dir=data_dir, batch_size=batch_size)
-    num_classes = len(class_names)
-    model.fc = nn.Linear(model.fc.in_features, num_classes)
     
     model.load_state_dict(torch.load(model_path, map_location=device))
     model.to(device)
