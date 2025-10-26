@@ -106,7 +106,7 @@ def train_model(
     # === Final Evaluation ===
     print("\nEvaluating best model on test set...")
     model.load_state_dict(torch.load(checkpoint_path))
-    test_loss, test_acc = evaluate(model, test_loader, criterion, device, desc="Test")
+    _, test_acc = evaluate(model, test_loader, criterion, device, desc="Test")
     print(f"Test Accuracy: {test_acc*100:.2f}%")
 
     return model, class_names
