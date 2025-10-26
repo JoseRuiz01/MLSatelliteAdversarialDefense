@@ -323,7 +323,7 @@ def evaluate_pgd(model, dataloader, device, eps=0.005, alpha=None, iters=50,
                 img_final = np.clip(img_final, raw_min, raw_max).astype(raw_dtype)
 
                 # Save
-                fname_tif = f"{base}_true{int(labels_cpu[i])}_pred{int(preds_cpu[i])}.tif"
+                fname_tif = f"{base}_{global_ptr+i}_true{int(labels_cpu[i])}_pred{int(preds_cpu[i])}.tif"
                 out_path = Path(out_dir) / fname_tif
                 tifffile.imwrite(out_path, img_final)
                 saved += 1
