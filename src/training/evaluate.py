@@ -17,7 +17,7 @@ def evaluate_model(model_path, data_dir="data/raw", batch_size=32, model_name="r
     if device is None:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
-        _, _, test_loader, class_names = get_dataloaders(data_dir=data_dir, batch_size=batch_size)
+    _, _, test_loader, class_names = get_dataloaders(data_dir=data_dir, batch_size=batch_size)
     num_classes = len(class_names)
     
     # === Load model ===
