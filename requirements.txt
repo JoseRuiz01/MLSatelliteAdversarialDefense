@@ -4,3 +4,5 @@ tqdm
 rasterio
 scikit-learn
 seaborn
+tifffile
+scikit-image

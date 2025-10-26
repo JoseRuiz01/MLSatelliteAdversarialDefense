@@ -12,6 +12,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import numpy as np
 from src.training.simple_cnn import SimpleCNN
+import tifffile
 
 try:
     from src.data.dataloader import EuroSATDataset, compute_mean_std, get_dataloaders
@@ -23,10 +24,10 @@ except Exception:
 
 class AdvFolderDataset(Dataset):
     """
-    Dataset for adversarial images saved as PNG/JPG with true label encoded in filename.
+    Dataset for adversarial images saved as TIF with true label encoded in filename.
     """
 
-    def __init__(self, folder, transform=None, pattern="*.png", class_names=None, data_dir=None):
+    def __init__(self, folder, transform=None, pattern="*.tif", class_names=None, data_dir=None):
         self.folder = folder
         self.pattern = pattern
         self.transform = transform
@@ -41,38 +42,22 @@ class AdvFolderDataset(Dataset):
             except Exception:
                 self.class_names = None
 
-       
-        self.labels_parsed = None 
+        self.labels_parsed = None
 
     def __len__(self):
         return len(self.filepaths)
 
     def _parse_label_from_filename(self, fname):
-        """
-        Try to extract label info from filename.
-        Return either int (numeric index) or str (class name), or raise ValueError.
-        """
         base = os.path.basename(fname)
-
         m = re.search(r"true[_\-]?(\d+)", base, flags=re.IGNORECASE)
         if m:
             return int(m.group(1))
-
         m = re.search(r"true[_\-\.\s]?([A-Za-z0-9]+)", base, flags=re.IGNORECASE)
         if m:
             return m.group(1)
-
-        m = re.search(r"(?:label|true)[_\-\.:]?([A-Za-z0-9]+)", base, flags=re.IGNORECASE)
-        if m:
-            return m.group(1)
-
-        raise ValueError(f"Could not parse true label from filename '{base}'. Expected 'true{{idx}}' or 'true{{ClassName}}'.")
+        raise ValueError(f"Could not parse true label from filename '{base}'.")
 
     def parse_labels(self):
-        """
-        Parse labels for all filepaths and return numeric indices.
-        If class_names is available, string labels will be mapped to indices.
-        """
         labels = []
         for fp in self.filepaths:
             raw = self._parse_label_from_filename(fp)
@@ -84,12 +69,9 @@ class AdvFolderDataset(Dataset):
                         labels.append(self.class_names.index(raw))
                     else:
                         lowered = [c.lower() for c in self.class_names]
-                        try:
-                            labels.append(lowered.index(raw.lower()))
-                        except ValueError:
-                            raise ValueError(f"Parsed class name '{raw}' from file '{fp}' but it is not in known class_names.")
+                        labels.append(lowered.index(raw.lower()))
                 else:
-                    raise ValueError(f"Parsed class name '{raw}' from file '{fp}' but no class_names available to map it to an index.")
+                    raise ValueError(f"Parsed class name '{raw}' but class_names not provided.")
         self.labels_parsed = labels
         return labels
 
@@ -98,11 +80,24 @@ class AdvFolderDataset(Dataset):
             self.parse_labels()
 
         p = self.filepaths[idx]
-        img = Image.open(p).convert("RGB")
+        img = tifffile.imread(p) 
+
+        if img.ndim == 2: 
+            img = np.stack([img]*3, axis=-1)
+        elif img.ndim == 3:
+            if img.shape[0] >= 4:
+                img = np.transpose(img, (1,2,0))
+            # Selecciona solo RGB
+            if img.shape[2] >= 4:
+                img = img[..., [3,2,1]]
+
+        img = Image.fromarray(img.astype(np.uint8))
+
         if self.transform is not None:
             img = self.transform(img)
         label = self.labels_parsed[idx]
         return img, label
+
 
 
 def get_mean_std(data_dir, sample_size=2000, device="cpu"):
@@ -166,17 +161,16 @@ def evaluate_adv(
     
     if class_names is None:
         class_names = [str(i) for i in range(max(adv_ds.parse_labels()) + 1)]
-        
+    num_classes = len(class_names)
+    
     if model_name == "simplecnn":
         model = SimpleCNN(num_classes=num_classes)
     elif model_name == "resnet18":
         model = models.resnet18(weights=models.ResNet18_Weights.DEFAULT)
+        model.fc = nn.Linear(model.fc.in_features, num_classes)
     else:
         raise ValueError(f"Unsupported model_name: {model_name}")
 
-
-    num_classes = len(class_names)
-    model.fc = nn.Linear(model.fc.in_features, num_classes)
     model.load_state_dict(torch.load(model_path, map_location=device))
     model.to(device)
     model.eval()
