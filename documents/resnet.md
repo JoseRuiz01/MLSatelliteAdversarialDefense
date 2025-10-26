@@ -81,6 +81,8 @@ The **Adam optimizer** is chosen for updating the model weights with a learning 
 
 After training, the best model is loaded and evaluated on the test set to measure final accuracy.
 
-* Test *Accuracy*: 
-* Test *F1-score*:
-* Test *loss*:
+* Test Accuracy: **82.77%**
+* Test Loss: **0.6247**
+* Precision: **0.8240**
+* Recall: **0.8252**
+* F1-score: **0.8234**
