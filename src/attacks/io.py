@@ -103,3 +103,32 @@ def save_adversarial_tif(
     out_path = Path(out_dir) / fname_tif
     tifffile.imwrite(str(out_path), img_final)
     return str(out_path)
+
+def load_tif_image(path: str, normalize: bool = True) -> np.ndarray:
+    """
+    Load a multi-band .tif image as a numpy array (C,H,W), optionally normalized to [0,1].
+
+    Args:
+        path: Path to the .tif file.
+        normalize: If True, scale values to [0,1] based on data range.
+
+    Returns:
+        np.ndarray: Image array in (C,H,W) format, dtype=float32 if normalized.
+    """
+    import tifffile
+    img = tifffile.imread(path)  # Usually (H, W, C)
+    if img.ndim == 2:
+        img = img[..., np.newaxis]  # (H, W, 1)
+
+    # Convert to (C,H,W)
+    img = np.transpose(img, (2, 0, 1))
+
+    if normalize:
+        img = img.astype(np.float32)
+        vmin, vmax = np.percentile(img, (1, 99.9))
+        if vmax > vmin:
+            img = np.clip((img - vmin) / (vmax - vmin), 0, 1)
+        else:
+            img = np.zeros_like(img, dtype=np.float32)
+
+    return img
