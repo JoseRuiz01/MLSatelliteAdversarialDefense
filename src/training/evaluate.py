@@ -15,7 +15,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import tifffile
 
-# Import project helpers
 from src.training.simple_cnn import SimpleCNN
 from src.attacks.utils import DEFAULT_MEAN, DEFAULT_STD
 from src.attacks.io import load_tif_image
