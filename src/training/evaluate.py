@@ -1,213 +1,161 @@
 import os
-import re
-import glob
 import torch
 import torch.nn as nn
-from torch.utils.data import Dataset, DataLoader
-from PIL import Image
+from tqdm import tqdm
+from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms, models
-from sklearn.metrics import (
-    accuracy_score, precision_score, recall_score, f1_score,
-    confusion_matrix, classification_report
-)
+from sklearn.metrics import classification_report, confusion_matrix
 import seaborn as sns
 import matplotlib.pyplot as plt
 import numpy as np
-import tifffile
 
 from src.training.simple_cnn import SimpleCNN
+from src.data.dataloader import get_dataloaders
 from src.attacks.utils import DEFAULT_MEAN, DEFAULT_STD
 from src.attacks.io import load_tif_image
 
-try:
-    from src.data.dataloader import EuroSATDataset, compute_mean_std, get_dataloaders
-except Exception:
-    EuroSATDataset = None
-    compute_mean_std = None
-    get_dataloaders = None
-
 
 # -------------------------
-#  Dataset for Raw Files
+# Dataset for raw .tif images (unlabeled)
 # -------------------------
 class RawFolderDataset(Dataset):
     """
-    Dataset for raw .tif images 
+    Simple dataset for .tif images in a folder (no encoded labels).
     """
+    def __init__(self, folder, transform=None, pattern="*.tif"):
+        from glob import glob
+        import os
 
-    def __init__(self, folder, transform=None, pattern="*.tif", class_names=None, data_dir=None):
-        self.folder = folder
-        self.pattern = pattern
-        self.transform = transform
-        self.filepaths = sorted(glob.glob(os.path.join(folder, pattern)))
+        self.filepaths = sorted(glob(os.path.join(folder, pattern)))
         if len(self.filepaths) == 0:
             raise FileNotFoundError(f"No images matching {pattern} found in {folder}")
 
-        self.class_names = class_names
-        if self.class_names is None and data_dir is not None and get_dataloaders is not None:
-            try:
-                _, _, _, self.class_names = get_dataloaders(data_dir=data_dir, batch_size=1)
-            except Exception:
-                self.class_names = None
-
+        self.transform = transform
 
     def __len__(self):
         return len(self.filepaths)
 
-    
     def __getitem__(self, idx):
-        p = self.filepaths[idx]
-        img = load_tif_image(p)
-
-        if self.transform is not None:
+        path = self.filepaths[idx]
+        img = load_tif_image(path)
+        if self.transform:
             img = self.transform(img)
-
-        return img
-
-
-# -------------------------
-#  Utility to get mean/std
-# -------------------------
-def get_mean_std(data_dir, sample_size=2000, device="cpu"):
-    if EuroSATDataset is None or compute_mean_std is None:
-        return DEFAULT_MEAN, DEFAULT_STD
-
-    base_ds = EuroSATDataset(data_dir, transform=transforms.ToTensor())
-    mean_t, std_t = compute_mean_std(base_ds, sample_size=sample_size)
-
-    mean = mean_t.tolist() if torch.is_tensor(mean_t) else list(mean_t)
-    std = std_t.tolist() if torch.is_tensor(std_t) else list(std_t)
-    return mean, std
+        return img, path
 
 
 # -------------------------
-#  Evaluate model
+# Evaluation (same style as training)
+# -------------------------
+def evaluate(model, dataloader, criterion, device, desc="Evaluation"):
+    model.eval()
+    running_loss, correct, total = 0.0, 0, 0
+    all_labels, all_preds = [], []
+
+    with torch.no_grad():
+        for images, labels in tqdm(dataloader, desc=desc, leave=False):
+            images, labels = images.to(device), labels.to(device)
+            outputs = model(images)
+            loss = criterion(outputs, labels)
+
+            running_loss += loss.item() * images.size(0)
+            _, preds = torch.max(outputs, 1)
+
+            correct += (preds == labels).sum().item()
+            total += labels.size(0)
+            all_labels.extend(labels.cpu().numpy())
+            all_preds.extend(preds.cpu().numpy())
+
+    epoch_loss = running_loss / total
+    epoch_acc = correct / total
+    return epoch_loss, epoch_acc, np.array(all_labels), np.array(all_preds)
+
+
+# -------------------------
+# Evaluate model from checkpoint
 # -------------------------
 def evaluate_model(
-    adv_folder,
     model_path,
-    data_dir=None,
-    batch_size=32,
+    data_dir="../data/raw",
+    batch_size=64,
     model_name="resnet18",
     device=None,
-    mean_std_sample_size=2000,
-    image_pattern="*.tif"
 ):
     """
-    Evaluate a trained model on images saved in raw_folder.
-    Computes classification metrics and confusion matrix.
+    Evaluate a trained model on EuroSAT test set.
+    Same metric flow and structure as in training.
     """
+
     if device is None:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"🔧 Using device: {device}")
 
-    if data_dir is None:
-        mean, std = DEFAULT_MEAN, DEFAULT_STD
-    else:
-        mean, std = get_mean_std(data_dir, sample_size=mean_std_sample_size, device=device)
-
-    transform = transforms.Compose([
-        transforms.Resize((64, 64)),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=mean, std=std)
-    ])
-
-    class_names = None
-    if data_dir is not None and get_dataloaders is not None:
-        try:
-            _, _, _, class_names = get_dataloaders(data_dir=data_dir, batch_size=1)
-        except Exception:
-            class_names = None
-
-    adv_ds = RawFolderDataset(
-        adv_folder,
-        transform=transform,
-        pattern=image_pattern,
-        class_names=class_names,
-        data_dir=data_dir
+    # === Load Datasets ===
+    train_loader, val_loader, test_loader, class_names = get_dataloaders(
+        data_dir=data_dir, batch_size=batch_size
     )
-    adv_loader = DataLoader(adv_ds, batch_size=batch_size, shuffle=False, num_workers=2)
-
-    if class_names is None:
-        class_names = [str(i) for i in range(max(adv_ds.parse_labels()) + 1)]
     num_classes = len(class_names)
 
-    # --- Load Model ---
+    # === Load Model ===
     if model_name.lower() == "simplecnn":
         model = SimpleCNN(num_classes=num_classes)
     elif model_name.lower() == "resnet18":
-        model = models.resnet18(weights=models.ResNet18_Weights.DEFAULT)
+        model = models.resnet18(weights=None)
         model.fc = nn.Linear(model.fc.in_features, num_classes)
     else:
-        raise ValueError(f"Unsupported model_name: {model_name}")
+        raise ValueError(f"Unsupported model: {model_name}")
 
     model.load_state_dict(torch.load(model_path, map_location=device))
-    model.to(device)
-    model.eval()
+    model = model.to(device)
 
     criterion = nn.CrossEntropyLoss()
-    all_labels, all_preds = [], []
-    total_loss, total_samples = 0.0, 0
 
-    with torch.no_grad():
-        for images, labels in adv_loader:
-            images = images.to(device)
-            labels = labels.to(device)
-            outputs = model(images)
-            loss = criterion(outputs, labels)
-            _, preds = torch.max(outputs, 1)
+    # === Evaluate ===
+    print("\n🧪 Evaluating model on test set...")
+    test_loss, test_acc, y_true, y_pred = evaluate(model, test_loader, criterion, device, desc="Test")
 
-            all_labels.extend(labels.cpu().numpy())
-            all_preds.extend(preds.cpu().numpy())
-            total_loss += loss.item() * images.size(0)
-            total_samples += images.size(0)
+    # === Compute classification metrics ===
+    report = classification_report(y_true, y_pred, target_names=class_names, digits=4, zero_division=0)
+    cm = confusion_matrix(y_true, y_pred)
 
-    test_loss = total_loss / total_samples
-    acc = accuracy_score(all_labels, all_preds)
-    precision = precision_score(all_labels, all_preds, average="macro", zero_division=0)
-    recall = recall_score(all_labels, all_preds, average="macro", zero_division=0)
-    f1 = f1_score(all_labels, all_preds, average="macro", zero_division=0)
-    cm = confusion_matrix(all_labels, all_preds)
-    report = classification_report(all_labels, all_preds, target_names=class_names, digits=4, zero_division=0)
+    print(f"\n🎯 Test Accuracy: {test_acc*100:.2f}%")
+    print(f"Test Loss: {test_loss:.4f}")
+
+    print("\nClassification metrics per category:\n")
+    print(report)
+
+    # === Plot confusion matrix ===
+    plot_confusion_matrix(cm, class_names)
 
     return {
-        "accuracy": acc,
+        "accuracy": test_acc,
         "loss": test_loss,
-        "precision": precision,
-        "recall": recall,
-        "f1": f1,
         "confusion_matrix": cm,
         "classification_report": report,
         "class_names": class_names,
-        "num_images": len(adv_ds)
     }
 
 
 # -------------------------
-#  Visualization Helpers
+# Confusion Matrix Plot
 # -------------------------
 def plot_confusion_matrix(cm, class_names, figsize=(10, 8), normalize=True):
-    """
-    Plot a confusion matrix using seaborn heatmap.
-    """
     if normalize:
-        with np.errstate(all='ignore'):
-            cm_norm = cm.astype('float')
-            row_sums = cm_norm.sum(axis=1, keepdims=True)
-            cm_norm = np.divide(cm_norm, row_sums, where=row_sums != 0)
-    else:
-        cm_norm = cm
+        with np.errstate(all="ignore"):
+            cm = cm.astype("float")
+            row_sums = cm.sum(axis=1, keepdims=True)
+            cm = np.divide(cm, row_sums, where=row_sums != 0)
 
     plt.figure(figsize=figsize)
     sns.heatmap(
-        cm_norm,
+        cm,
         annot=True,
         fmt=".2f" if normalize else "d",
         cmap="Blues",
         xticklabels=class_names,
-        yticklabels=class_names
+        yticklabels=class_names,
     )
-    plt.ylabel('True label')
-    plt.xlabel('Predicted label')
+    plt.ylabel("True label")
+    plt.xlabel("Predicted label")
     plt.title("Confusion Matrix")
     plt.tight_layout()
     plt.show()
