@@ -44,18 +44,21 @@ def unnormalize(img: torch.Tensor, mean, std) -> torch.Tensor:
 
 
 def select_rgb_bands(img):
+    """Selects RGB bands matching GDAL example: bands 4, 3, 2."""
     if img.ndim == 3 and img.shape[2] >= 4:
-        return img[:, :, [3,2,1]]
-    if img.ndim == 2:
+        # Using 0-based indexing: Band 4→3, Band 3→2, Band 2→1
+        return img[:, :, [3, 2, 1]]
+    elif img.ndim == 2:
         return np.stack([img]*3, axis=-1)
-    return img[:, :, :3]
+    else:
+        return img[:, :, :3]
 
-def normalize_image(img, low=1, high=99):
+
+def gdal_style_scale(img, src_min=0, src_max=2750, dst_min=1, dst_max=255):
+    """Apply GDAL-style scaling and clipping."""
     img = img.astype(np.float32)
-    for c in range(img.shape[2]):
-        p_low, p_high = np.percentile(img[:, :, c], (low, high))
-        if p_high > p_low:
-            img[:, :, c] = (img[:, :, c] - p_low) / (p_high - p_low)
-        else:
-            img[:, :, c] = 0
-    return np.clip(img, 0, 1)
+    img = np.clip(img, src_min, src_max)
+    img = (img - src_min) / (src_max - src_min)
+    img = img * (dst_max - dst_min) + dst_min
+    img = np.clip(img, dst_min, dst_max)
+    return (img / 255.0).astype(np.float32)  # normalize for display

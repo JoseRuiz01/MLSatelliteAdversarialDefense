@@ -17,7 +17,7 @@ except Exception:
 @dataclass
 class PGDConfig:
     eps: float = 0.005
-    alpha: Optional[float] = None   # if None -> alpha = eps * small_step_fraction
+    alpha: Optional[float] = None   
     iters: int = 50
     small_step_fraction: float = 0.2
     grad_mask_fraction: float = 0.25
@@ -40,35 +40,26 @@ def build_importance_mask(
         grad: gradient tensor of shape (B, C, H, W)
         keep_fraction: fraction of pixels to keep (highest magnitude)
         blur_sigma: gaussian blur sigma applied to binary mask (optional)
-
-    Returns:
-        mask: tensor shape (B, 1, H, W) with values in [0,1]
     """
     with torch.no_grad():
-        # magnitude aggregated over channels -> (B, H, W)
         magnitude = grad.abs().mean(dim=1)  # (B, H, W)
         B, H, W = magnitude.shape
         mask = torch.zeros_like(magnitude)
 
         k = max(1, int(H * W * keep_fraction))
 
-        # We'll compute threshold per-batch item and then optionally blur
         for i in range(B):
             flat = magnitude[i].view(-1)
             if k >= flat.numel():
                 top_mask = torch.ones_like(flat)
             else:
-                # kth largest: torch.kthvalue with k from 1..N returns kth smallest so we index N-k+1
                 kth_idx = flat.numel() - k + 1
                 thresh = torch.kthvalue(flat, kth_idx).values
                 top_mask = (flat >= thresh).float()
             top_mask = top_mask.view(H, W).cpu().numpy()
-
-            # apply blur (scipy if available, else a simple local mean)
             if gaussian_filter is not None and blur_sigma > 0:
                 top_mask = gaussian_filter(top_mask, sigma=blur_sigma)
             else:
-                # simple 3x3 mean filter
                 kernel = np.ones((3, 3)) / 9.0
                 top_mask = np.clip(
                     np.convolve(top_mask.ravel(), kernel.ravel(), mode="same"), 0, 1
