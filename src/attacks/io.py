@@ -20,7 +20,6 @@ def save_adversarial_tif(
     mean_t,
     std_t,
     labels_cpu,
-    preds_cpu,
     out_dir: str,
     eps: float,
     perceptual_eps_factor: float = 0.45,
@@ -99,7 +98,7 @@ def save_adversarial_tif(
     img_final = np.clip(img_final, raw_min, raw_max).astype(raw_dtype)
 
     base = Path(orig_path).stem
-    fname_tif = f"{base}_true{int(labels_cpu[index_in_batch])}_pred{int(preds_cpu[index_in_batch])}.tif"
+    fname_tif = f"{base}_true{int(labels_cpu[index_in_batch])}.tif"
     out_path = Path(out_dir) / fname_tif
     tifffile.imwrite(str(out_path), img_final)
     return str(out_path)

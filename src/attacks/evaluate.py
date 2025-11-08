@@ -6,7 +6,9 @@ import torch
 import torch.nn as nn
 from tqdm import tqdm
 import numpy as np
-
+import tifffile
+from PIL import Image
+from torchvision import transforms
 from .pgd import pgd_attack_batch, PGDConfig
 from .utils import extract_mean_std, unnormalize, DEFAULT_MEAN, DEFAULT_STD
 from .io import save_adversarial_tif
@@ -115,7 +117,6 @@ def evaluate_pgd(
         if (batch_idx % save_every == 0) and (max_save is None or saved < max_save):
             adv_cpu = adv_images.cpu()
             labels_cpu = labels.cpu().numpy()
-            preds_cpu = preds_adv.cpu().numpy()
 
             for i in range(batch_size):
                 if max_save is not None and saved >= max_save:
@@ -134,6 +135,7 @@ def evaluate_pgd(
                     orig_name = f"sample_{global_ptr + i}.tif"
 
                 try:
+                    # Save first
                     out_path = save_adversarial_tif(
                         adv_img_tensor=adv_cpu,
                         index_in_batch=i,
@@ -141,16 +143,40 @@ def evaluate_pgd(
                         mean_t=mean_t,
                         std_t=std_t,
                         labels_cpu=labels_cpu,
-                        preds_cpu=preds_cpu,
                         out_dir=out_dir,
                         eps=eps,
                         perceptual_eps_factor=perceptual_eps_factor,
                         smooth_sigma=smooth_sigma,
                         dither_scale=dither_scale,
                     )
+
+                    img = tifffile.imread(out_path)
+                    if img.ndim == 2:
+                        img = np.stack([img]*3, axis=-1)
+                    elif img.ndim == 3 and img.shape[2] >= 4:
+                        img = img[..., [3,2,1]]  # select RGB
+
+                    img = Image.fromarray(img.astype(np.uint8))
+                    preprocess = transforms.Compose([
+                        transforms.Resize((64,64)),
+                        transforms.ToTensor(),
+                        transforms.Normalize(mean=mean_t.squeeze().tolist(), std=std_t.squeeze().tolist())
+                    ])
+                    img_tensor = preprocess(img).unsqueeze(0).to(device)
+                    with torch.no_grad():
+                        out_pred = model(img_tensor)
+                        pred_class = out_pred.argmax(1).item()
+
+                    base = Path(orig_name).stem
+                    true_label = int(labels_cpu[i])
+                    new_fname = f"{base}_true{true_label}_pred{pred_class}.tif"
+                    new_path = Path(out_dir) / new_fname
+                    os.rename(out_path, new_path)
                     saved += 1
+
                 except Exception as e:
-                    print(f"Warning: failed to save adversarial image for {orig_name}: {e}")
+                    print(f"Warning: failed to save or rename adversarial image for {orig_name}: {e}")
+
 
         global_ptr += batch_size
 

@@ -1,13 +1,16 @@
-# src/attacks/evaluate.py
 import os
 import re
 import glob
+from pathlib import Path
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 from PIL import Image
 from torchvision import transforms, models
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix, classification_report
+from sklearn.metrics import (
+    accuracy_score, precision_score, recall_score, f1_score,
+    confusion_matrix, classification_report
+)
 import seaborn as sns
 import matplotlib.pyplot as plt
 import numpy as np
@@ -24,7 +27,7 @@ except Exception:
 
 class AdvFolderDataset(Dataset):
     """
-    Dataset for adversarial images saved as TIF with true label encoded in filename.
+    Dataset for adversarial images saved as TIF/PNG files with true label encoded in filename.
     """
 
     def __init__(self, folder, transform=None, pattern="*.tif", class_names=None, data_dir=None):
@@ -80,45 +83,36 @@ class AdvFolderDataset(Dataset):
             self.parse_labels()
 
         p = self.filepaths[idx]
-        img = tifffile.imread(p) 
+        img = tifffile.imread(p)
 
-        if img.ndim == 2: 
-            img = np.stack([img]*3, axis=-1)
+        if img.ndim == 2:
+            img = np.stack([img] * 3, axis=-1)
         elif img.ndim == 3:
             if img.shape[0] >= 4:
-                img = np.transpose(img, (1,2,0))
-            # Selecciona solo RGB
+                img = np.transpose(img, (1, 2, 0))
             if img.shape[2] >= 4:
-                img = img[..., [3,2,1]]
+                img = img[..., [3, 2, 1]]
 
         img = Image.fromarray(img.astype(np.uint8))
 
         if self.transform is not None:
             img = self.transform(img)
         label = self.labels_parsed[idx]
-        return img, label
-
+        return img, label, p
 
 
 def get_mean_std(data_dir, sample_size=2000, device="cpu"):
     """
-    Use the project's dataloader helper to compute mean/std if available.
+    Compute or return precomputed dataset mean and std values.
     """
     if EuroSATDataset is None or compute_mean_std is None:
-        
         return [0.3443, 0.3803, 0.4082], [0.1573, 0.1309, 0.1198]
 
     base_ds = EuroSATDataset(data_dir, transform=transforms.ToTensor())
     mean_t, std_t = compute_mean_std(base_ds, sample_size=sample_size)
 
-    if torch.is_tensor(mean_t):
-        mean = mean_t.tolist()
-    else:
-        mean = list(mean_t)
-    if torch.is_tensor(std_t):
-        std = std_t.tolist()
-    else:
-        std = list(std_t)
+    mean = mean_t.tolist() if torch.is_tensor(mean_t) else list(mean_t)
+    std = std_t.tolist() if torch.is_tensor(std_t) else list(std_t)
     return mean, std
 
 
@@ -130,10 +124,11 @@ def evaluate_adv(
     model_name="resnet18",
     device=None,
     mean_std_sample_size=2000,
-    image_pattern="*.png"
+    image_pattern="*.tif"
 ):
     """
-    Evaluate a trained model on adversarial images saved in adv_folder.
+    Evaluate a trained model on adversarial images in adv_folder and rename
+    each file to include both true and predicted labels.
     """
     if device is None:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -156,13 +151,14 @@ def evaluate_adv(
         except Exception:
             class_names = None
 
-    adv_ds = AdvFolderDataset(adv_folder, transform=transform, pattern=image_pattern, class_names=class_names, data_dir=data_dir)
+    adv_ds = AdvFolderDataset(adv_folder, transform=transform, pattern=image_pattern,
+                              class_names=class_names, data_dir=data_dir)
     adv_loader = DataLoader(adv_ds, batch_size=batch_size, shuffle=False, num_workers=2)
-    
+
     if class_names is None:
         class_names = [str(i) for i in range(max(adv_ds.parse_labels()) + 1)]
     num_classes = len(class_names)
-    
+
     if model_name == "simplecnn":
         model = SimpleCNN(num_classes=num_classes)
     elif model_name == "resnet18":
@@ -176,23 +172,40 @@ def evaluate_adv(
     model.eval()
 
     criterion = nn.CrossEntropyLoss()
-    all_labels = []
-    all_preds = []
-    total_loss = 0.0
-    total_samples = 0
+    all_labels, all_preds = [], []
+    total_loss, total_samples = 0.0, 0
 
     with torch.no_grad():
-        for images, labels in adv_loader:
+        for images, labels, paths in adv_loader:
             images = images.to(device)
             labels = labels.to(device)
+
             outputs = model(images)
             loss = criterion(outputs, labels)
             _, preds = torch.max(outputs, 1)
 
             all_labels.extend(labels.cpu().numpy())
             all_preds.extend(preds.cpu().numpy())
+
             total_loss += loss.item() * images.size(0)
             total_samples += images.size(0)
+
+            # === Rename adversarial files to include true/pred info ===
+            for i, orig_path in enumerate(paths):
+                true_label = int(labels[i].item())
+                pred_class = int(preds[i].item())
+                base = Path(orig_path).stem
+
+                # Avoid double renaming (if already contains _pred)
+                if "_pred" in base.lower():
+                    continue
+
+                new_fname = f"{base}_true{true_label}_pred{pred_class}.tif"
+                new_path = Path(orig_path).parent / new_fname
+                try:
+                    os.rename(orig_path, new_path)
+                except Exception as e:
+                    print(f"⚠️ Could not rename {orig_path} -> {new_path}: {e}")
 
     if total_samples == 0:
         raise RuntimeError("No samples were evaluated (total_samples == 0)")
@@ -218,23 +231,23 @@ def evaluate_adv(
     }
 
 
-def plot_confusion_matrix(cm, class_names, figsize=(10,8), normalize=True):
+def plot_confusion_matrix(cm, class_names, figsize=(10, 8), normalize=True):
     """
-    Plot confusion matrix with Seaborn heatmap
+    Plot confusion matrix using Seaborn heatmap.
     """
     if normalize:
         with np.errstate(all='ignore'):
             cm_norm = cm.astype('float')
             row_sums = cm_norm.sum(axis=1, keepdims=True)
-            cm_norm = np.divide(cm_norm, row_sums, where=row_sums!=0)
+            cm_norm = np.divide(cm_norm, row_sums, where=row_sums != 0)
     else:
         cm_norm = cm
 
     plt.figure(figsize=figsize)
     sns.heatmap(cm_norm, annot=True, fmt=".2f" if normalize else "d", cmap="Blues",
                 xticklabels=class_names, yticklabels=class_names)
-    plt.ylabel('True label')
-    plt.xlabel('Predicted label')
+    plt.ylabel("True label")
+    plt.xlabel("Predicted label")
     plt.title("Confusion Matrix")
     plt.tight_layout()
     plt.show()
