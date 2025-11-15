@@ -93,16 +93,29 @@ For each training epoch:
 
 After training, the best model is loaded and evaluated on the test set to measure final accuracy.
 
-**SimpleCNN**
-* Test Accuracy: **96.24%**
-* Test Loss: **0.1777**
-* Precision: **0.9623**
-* Recall: **0.9629**
-* F1-score: **0.9626**
-
+#### 4.4.1. **Experiment 1**
 **ResNet18** (Forest, Highway, SeaLake)
+* Device: **macOS M1 CPU**
 * Test Accuracy: **99.14%**
 * Test Loss: **0.0220**
 * Precision: **0.9912**
 * Recall: **0.9917**
 * F1-score: **0.9914**
+
+#### 4.4.2. **Experiment 2**
+**ResNet50** (AnnualCrop, Forest, Residential, River)
+Device: **Kaggle accelerator GPU P100**
+* Test Accuracy: **99.88%**
+* Test Loss: **0.0060**
+* Precision: **0.9988**
+* Recall: **0.9989**
+* F1-score: **0.9988**
+
+#### 4.4.3. **Experiment 3**
+**ResNet50** (AnnualCrop, Forest, Highway, Industrial, Residential, River)
+Device: **Kaggle accelerator GPU P100**
+* Test Accuracy: **9**
+* Test Loss: **0.02**
+* Precision: **0.9**
+* Recall: **0.9**
+* F1-score: **0.9**
