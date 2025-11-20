@@ -2,9 +2,9 @@
 
 ## 1. Introduction
 
-This project implements a robust and perceptually-aware **Projected Gradient Descent (PGD)** adversarial attack pipeline for evaluating the resilience of image classification models. Adversarial attacks are small, often imperceptible perturbations deliberately added to input images to induce misclassification by neural networks. PGD is one of the most widely-used iterative adversarial attack methods due to its effectiveness in exploring the worst-case perturbation space around an input image.
+This project implements a **Projected Gradient Descent (PGD)** adversarial attack pipeline designed to evaluate the robustness of image classification models trained on satellite imagery. Adversarial attacks introduce small, carefully crafted perturbations to input images that cause neural networks to misclassify them, while remaining imperceptible or minimally visible to human observers. PGD is one of the most effective iterative attack methods, systematically exploring the worst-case perturbation space around an input to find the most damaging modifications.
 
-The goal of this implementation is not only to test model robustness but also to generate adversarial examples that are visually coherent and realistic, particularly for high-resolution or multi-spectral images.
+The implementation focuses on generating adversarial examples that successfully fool the model while maintaining visual coherence in the resulting images, which is particularly important for multi-band satellite imagery where artifacts can be more noticeable.
 
 ---
 
@@ -12,107 +12,193 @@ The goal of this implementation is not only to test model robustness but also to
 
 ### 2.1 Concept
 
-**Projected Gradient Descent (PGD)** is an iterative adversarial attack that generalizes the Fast Gradient Sign Method (FGSM). At each iteration, the attack updates the input image in the direction that maximally increases (or decreases, for targeted attacks) the model's loss, while ensuring that the cumulative perturbation remains within a defined **ε-ball** around the original image.
+**Projected Gradient Descent (PGD)** is an iterative adversarial attack that extends the simpler Fast Gradient Sign Method (FGSM) by repeatedly applying small perturbations over multiple iterations. At each step, the attack modifies the input image in the direction that maximally increases the model's loss (for untargeted attacks) or decreases it toward a specific target class (for targeted attacks). Crucially, after each update, the perturbation is projected back into a constrained region defined by an **ε-ball** around the original image, ensuring the modifications remain bounded.
 
-Mathematically, the iterative update is:
+The iterative process can be summarized as:
 
-[
-x_{t+1} = \text{Proj}_\epsilon \big(x_t + \alpha \cdot \text{step_direction}\big)
-]
+1. **Compute gradient**: Calculate how the model's loss changes with respect to the input image
+2. **Take step**: Move the image in the direction that increases loss
+3. **Project**: Ensure the total perturbation doesn't exceed the maximum allowed magnitude (ε)
+4. **Repeat**: Iterate multiple times to find stronger adversarial examples
 
-Where:
-
-* `step_direction` is derived from the gradient of the loss with respect to the input.
-* `Proj_ε` projects the perturbed image back into the allowed perturbation region.
-* `α` is the step size controlling perturbation increment per iteration.
-
-By iterating multiple times, PGD explores adversarial directions more thoroughly than single-step methods, yielding stronger and more transferable attacks.
+By exploring adversarial directions thoroughly over many iterations, PGD produces more robust attacks compared to single-step methods, making it an excellent benchmark for evaluating model security.
 
 ---
 
-## 3. Project Workflow and Functionalities
+## 3. Implementation Approach
 
-This implementation enhances classical PGD with **perceptual and stability improvements** that increase both attack effectiveness and visual realism.
+This implementation uses a **simplified and direct PGD attack** that prioritizes effectiveness over perceptual sophistication. The goal is to generate strong adversarial examples that successfully cause misclassification, even if this means accepting some visible perturbations.
 
-### 3.1 Iterative Perturbation Application
+### 3.1 Core Attack Mechanism
 
-* Input images are iteratively modified using gradient information from the model.
-* Each iteration applies a small step towards increasing the model's loss.
-* The perturbation is constrained within a predefined maximum magnitude (`eps`) to keep changes subtle.
+The attack begins by initializing adversarial images with small random noise added to the original inputs. This random start helps the attack explore different perturbation directions and often leads to stronger adversarial examples than starting from the clean image.
 
-### 3.2 Gradient-based Importance Masking
+At each iteration, the method:
 
-* Perturbations are applied preferentially to the most influential pixels, identified by the gradient magnitude.
-* A **soft mask** ensures that important regions are targeted while preserving spatial coherence.
-* This reduces unnecessary noise and focuses the attack where it is most likely to succeed.
+1. **Forward pass**: Runs the current adversarial image through the model
+2. **Loss computation**: Calculates the classification loss with respect to the true label
+3. **Gradient extraction**: Computes gradients of the loss with respect to the input pixels
+4. **Sign-based update**: Uses the sign of the gradient (rather than its magnitude) to determine the direction of perturbation
+5. **Epsilon projection**: Clips the total perturbation to remain within the allowed ε-ball
+6. **Value clipping**: Ensures pixel values stay in valid ranges (0 to 1 for normalized images)
 
-### 3.3 Gaussian Smoothing
+The sign-based gradient update (similar to FGSM but applied iteratively) provides a good balance between attack strength and computational efficiency.
 
-* Perturbations are smoothed to reduce high-frequency noise that can be visually conspicuous.
-* Applied both in the iterative loop and during perceptual reconstruction of saved images.
+### 3.2 Attack Parameters
 
-### 3.4 Random Dithering
+The effectiveness of PGD depends on three key hyperparameters:
 
-* Small stochastic noise is added to break up structured patterns in the perturbation.
-* Helps avoid easy detection and increases attack variability.
+* **Epsilon (ε)**: The maximum allowed perturbation magnitude. Larger values produce stronger attacks but more visible changes. Values tested range from 0.03 to 0.1 in normalized image space.
 
-### 3.5 LAB Color-space Perceptual Scaling
+* **Alpha (α)**: The step size for each iteration, typically set as ε/10. This determines how aggressively the attack explores the perturbation space.
 
-* Perturbations are optionally applied in LAB color space, allowing separate scaling of lightness and chromaticity channels.
-* This preserves visual realism, especially when saving adversarial images in formats like TIFF or high dynamic range imagery.
+* **Iterations**: The number of optimization steps. More iterations generally produce stronger attacks, with 100 iterations providing a good balance between effectiveness and computation time.
 
----
+### 3.3 Targeted vs Untargeted Attacks
 
-## 4. Batch Evaluation and Image Generation
+The implementation supports both attack modes:
 
-The pipeline is designed for batch processing of datasets:
+* **Untargeted attacks** (used in this project): Maximize the loss for the correct class, causing the model to predict any incorrect class
+* **Targeted attacks**: Minimize the loss for a specific target class, forcing misclassification toward a chosen category
 
-1. **Clean Evaluation**
+Untargeted attacks are more realistic for security evaluation, as attackers typically only need to cause incorrect predictions rather than control the specific output.
 
-   * Computes model accuracy and loss on unaltered images.
+### 3.4 Adversarial Image Storage
 
-2. **Adversarial Generation**
+Generated adversarial examples are saved as TIFF files that preserve the attack modifications. The saving process:
 
-   * PGD is applied iteratively on image batches.
-   * Importance masks, smoothing, and dithering are applied automatically per batch.
-   * Perturbations are clipped to remain within the allowed `eps` bounds.
+1. **Denormalizes** images from the model's input space back to pixel values
+2. **Converts** to 8-bit RGB format (0-255 range)
+3. **Maintains** the perturbation structure without additional smoothing or processing
+4. **Encodes** both true and predicted labels in filenames for easy evaluation
 
-3. **Adversarial Evaluation**
-
-   * Computes model accuracy and loss on adversarially perturbed images.
-   * Metrics are aggregated across the dataset for benchmarking.
-
-4. **Image Saving**
-
-   * Adversarial images are optionally saved for inspection.
-   * Perceptual adjustments in LAB space ensure the adversarial examples are realistic.
-   * Perturbation strength is scaled according to a perceptual factor to avoid visible artifacts.
+This straightforward approach ensures that the saved adversarial images accurately represent what the model sees, allowing for reliable post-attack evaluation.
 
 ---
 
-## 5. Key Functional Enhancements
+## 4. Evaluation Pipeline
 
-| Functionality           | Purpose                                                      |
-| ----------------------- | ------------------------------------------------------------ |
-| Iterative perturbation  | Strengthens attack by exploring worst-case directions        |
-| Gradient-based masking  | Focuses perturbation on most influential pixels              |
-| Gaussian smoothing      | Ensures spatially coherent and visually smooth perturbations |
-| Random dithering        | Reduces structured noise patterns and increases stealth      |
-| LAB color-space scaling | Preserves perceptual realism and color balance               |
-| Controlled clipping     | Keeps perturbations within the defined `ε` bounds            |
+The complete evaluation workflow processes test datasets in batches and generates comprehensive metrics:
+
+### 4.1 Clean Baseline Measurement
+
+Before applying any attacks, the pipeline:
+* Evaluates the model on unmodified test images
+* Records accuracy and loss as baseline metrics
+* Establishes the model's performance under normal conditions
+
+### 4.2 Adversarial Generation and Testing
+
+For each batch of test images:
+* **Initial random perturbation** is added to each image
+* **Iterative PGD optimization** runs for the specified number of iterations
+* **Gradient-based updates** progressively increase the attack strength
+* **Epsilon projection** keeps perturbations within bounds after each step
+* **Immediate evaluation** tests the model on the adversarial examples
+* **Selective saving** stores a subset of adversarial images for later analysis
+
+### 4.3 Post-Generation Evaluation
+
+After generating adversarial images, a separate evaluation:
+* **Reloads** saved adversarial TIFF files from disk
+* **Preprocesses** them using the same pipeline as training data
+* **Predicts** class labels and confidence scores
+* **Updates** filenames to include both true and predicted labels
+* **Computes** comprehensive metrics including confusion matrices
+
+This two-stage approach validates that the saved adversarial examples maintain their attack effectiveness.
 
 ---
 
-## 6. Output Metrics
+## 5. Design Decisions
 
-The evaluation routine provides a structured metrics summary:
+The implementation makes several deliberate choices to maximize attack effectiveness:
 
-* `clean_acc` — model accuracy on unaltered images.
-* `adv_acc` — model accuracy on adversarially perturbed images.
-* `clean_loss` — mean loss on clean images.
-* `adv_loss` — mean loss on adversarial images.
-* `eps` — maximum perturbation magnitude used.
-* `saved` — number of adversarial images saved.
-* `out_dir` — directory path for saved images.
+| Design Choice               | Rationale                                                                                     |
+|-----------------------------|-----------------------------------------------------------------------------------------------|
+| Random initialization       | Explores diverse perturbation directions; often finds stronger adversarial examples          |
+| Sign-based gradients        | Provides consistent step sizes; reduces sensitivity to gradient magnitudes                   |
+| Simple projection           | Direct epsilon clipping is efficient and effective; avoids complex constraints               |
+| Minimal post-processing     | Preserves attack strength; avoids inadvertently reducing perturbation effectiveness          |
+| Direct TIFF saving          | Maintains precise pixel values; ensures saved examples match what the model sees             |
+| High epsilon values         | Prioritizes attack success over imperceptibility; tests worst-case model vulnerabilities     |
 
-These metrics provide insight into the model's vulnerability and the effectiveness of the attack.
+These choices reflect a focus on **attack effectiveness** for security evaluation rather than generating imperceptible perturbations for deceptive purposes.
+
+---
+
+## 6. Experiments and Results
+
+After generating the final `adv` folder containing the adversarial images, we evaluated the model’s performance using these newly generated samples.
+
+Firstly, we have to understand the main metrics of the attack:
+
+- Each iteration => one small step
+- Alpha => step size
+- Total iterations => how many steps you take
+- Eps => maximum distance you're allowed from starting point
+
+### 6.1. **Experiment on Resnet50 (experiment 2)**
+
+
+#### 6.1.1. **Experiment 1**
+eps: **1/255**      
+alpha: **eps/10**
+iters: **40**
+grad_blur_sigma=**1.0**
+
+* Num images: 100
+* Test Accuracy: **53.00%**
+* Test Loss: **2.8995**
+* Precision: **0.4650**
+* Recall: **0.5087**
+* F1-score: **0.4610**
+*Perturbations are visibles (check e1_img)*
+
+
+#### 6.1.2. **Experiment 2**
+eps: **1/255**      
+alpha: **eps/10**
+iters: **40**
+grad_blur_sigma=**2.0** (*smoother*)
+Add low-pass filter to suppress high-frequency artifacts (reduce visible effects of the attack)
+Add perceptual loss guidance
+(perturbations are more imperceptible) 
+
+* Num images: 100
+* Test Accuracy: **30.00%**
+* Test Loss: **5.5515**
+* Precision: **0.0974**
+* Recall: **0.2500**
+* F1-score: **0.1402**
+*Perturbations are very smooth (check e2_img)*
+
+
+#### 6.1.3. **Experiment 3**
+eps: **4/255**     (*greater perturbation*) 
+alpha: **eps/10**
+iters: **100**   (*more iterations to optimize*)
+grad_blur_sigma=**2.0** 
+
+* Num images: 100
+* Test Accuracy: **30.00%**
+* Test Loss: **5.4818**
+* Precision: **0.0987**
+* Recall: **0.2500**
+* F1-score: **0.1415**
+*No significant changes but with lower performance (check e3_img)*
+
+
+#### 6.1.4. **Experiment 4**
+eps: **4/255**     
+alpha: **eps/20**  (*smaller steps*) 
+iters: **100**   
+grad_blur_sigma=**2.0** 
+
+* Num images: 100
+* Test Accuracy: **53.00%**
+* Test Loss: **5.5034**
+* Precision: **0.0974**
+* Recall: **0.2500**
+* F1-score: **0.1402**
+*No significant changes but with lower performance (check e4_img)*
