@@ -4,7 +4,7 @@ from typing import Optional, Tuple
 import os
 import numpy as np
 import tifffile
-
+import torch
 from .perceptual import apply_lab_perturbation
 from .utils import unnormalize, DEFAULT_MEAN, DEFAULT_STD
 try:

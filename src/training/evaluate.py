@@ -128,16 +128,6 @@ def evaluate_model(
     report = classification_report(y_true, y_pred, target_names=class_names, digits=4, zero_division=0)
     cm = confusion_matrix(y_true, y_pred)
 
-    print(f"\n🎯 Test Accuracy: {test_acc*100:.2f}%")
-    print(f"Test Loss: {test_loss:.4f}")
-
-    print("\nClassification metrics per category:\n")
-    print(report)
-
-    # === Plot confusion matrix ===
-    plot_confusion_matrix(cm, class_names)
-
-
     return {
         "accuracy": test_acc,
         "loss": test_loss,

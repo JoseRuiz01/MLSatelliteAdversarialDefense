@@ -7,6 +7,7 @@ import tifffile
 import numpy as np
 from skimage.transform import resize
 
+
 DEFAULT_MEAN = [0.3443, 0.3803, 0.4082]
 DEFAULT_STD = [0.1573, 0.1309, 0.1198]
 
