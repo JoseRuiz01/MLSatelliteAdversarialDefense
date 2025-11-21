@@ -77,8 +77,6 @@ def get_dataloaders(data_dir="data/raw", batch_size=32, val_split=0.15, test_spl
     
     train_transform = transforms.Compose([
         transforms.Resize((224,224)),
-        transforms.RandomHorizontalFlip(),
-        transforms.RandomVerticalFlip(),
         transforms.ToTensor(),
         transforms.Normalize(mean=mean, std=std)
     ])
@@ -100,7 +98,8 @@ def get_dataloaders(data_dir="data/raw", batch_size=32, val_split=0.15, test_spl
         full_dataset, [train_size, val_size, test_size],
         generator=torch.Generator().manual_seed(seed)
     )
-
+    
+    train_dataset.dataset.transform = train_transform
     val_dataset.dataset.transform = test_transform
     test_dataset.dataset.transform = test_transform
 
