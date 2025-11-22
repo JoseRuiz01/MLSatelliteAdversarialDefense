@@ -14,9 +14,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import numpy as np
 
-from src.training.simple_cnn import SimpleCNN
 from src.data.dataloader import get_dataloaders
-from src.attacks.utils import DEFAULT_MEAN, DEFAULT_STD
 from src.attacks.io import load_tif_image
 
 
@@ -101,9 +99,7 @@ def evaluate_model(
     num_classes = len(class_names)
 
     # === Load Model ===
-    if model_name.lower() == "simplecnn":
-        model = SimpleCNN(num_classes=num_classes)
-    elif model_name.lower() == "resnet18":
+    if model_name.lower() == "resnet18":
         model = models.resnet18(weights=None)
         model.fc = nn.Linear(model.fc.in_features, num_classes)
     elif model_name.lower() == "resnet50":
@@ -137,6 +133,7 @@ def evaluate_model(
         "confusion_matrix": cm,
         "classification_report": report,
         "class_names": class_names,
+        "num_images": len(test_loader.dataset)
     }
 
 

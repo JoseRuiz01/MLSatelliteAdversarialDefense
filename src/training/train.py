@@ -7,8 +7,6 @@ from tqdm import tqdm
 from torch.amp import autocast, GradScaler
 
 from src.data.dataloader import get_dataloaders
-from src.training.simple_cnn import SimpleCNN
-
 
 def train_one_epoch(model, dataloader, criterion, optimizer, device, scaler=None):
     model.train()
@@ -74,7 +72,6 @@ def train_model(
 ):
     """
     Train a classification model on EuroSAT dataset.
-    Supports SimpleCNN and various ResNets.
     """
 
     if device is None:
@@ -88,9 +85,7 @@ def train_model(
     num_classes = len(class_names)
 
     # === Model ===
-    if model_name == "simplecnn":
-        model = SimpleCNN(num_classes=num_classes)
-    elif model_name == "resnet18":
+    if model_name == "resnet18":
         model = models.resnet18(weights=models.ResNet18_Weights.IMAGENET1K_V1) 
         
         if freeze_backbone:
