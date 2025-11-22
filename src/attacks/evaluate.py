@@ -18,7 +18,7 @@ def evaluate_pgd(
     model: torch.nn.Module,
     dataloader,
     device: torch.device,
-    eps: float = 2.0,        # In 0-255 scale (more intuitive)
+    eps: float = 2.0,       
     alpha: Optional[float] = None,
     iters: int = 20,
     out_dir: str = "../data/adv/adv_1",
@@ -26,7 +26,7 @@ def evaluate_pgd(
     max_save: Optional[int] = 200,
     targeted: bool = False,
     target_class: Optional[int] = None,
-    smooth_sigma: float = 0.8,  # Smoothing factor
+    smooth_sigma: float = 0.8, 
 ) -> Dict:
     """
     Evaluation function with proper space handling.

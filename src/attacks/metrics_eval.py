@@ -14,7 +14,6 @@ from sklearn.metrics import (
 import seaborn as sns
 import matplotlib.pyplot as plt
 import numpy as np
-from src.training.simple_cnn import SimpleCNN
 import tifffile
 
 try:

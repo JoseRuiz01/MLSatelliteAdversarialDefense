@@ -165,7 +165,6 @@ def compute_saliency_mask(images: torch.Tensor) -> torch.Tensor:
     edges_y = F.conv2d(gray, sobel_y, padding=1)
     edges = torch.sqrt(edges_x**2 + edges_y**2)
     
-    # Invert: high values = non-edge regions (safe to perturb)
     mask = 1.0 - torch.sigmoid(edges * 5)
     return mask.repeat(1, images.shape[1], 1, 1)
 
@@ -185,13 +184,9 @@ def pgd_attack_batch(
     images = images.to(device)
     labels = labels.to(device)
     
-    # Clonar imágenes originales
     ori_images = images.clone().detach()
-    
-    # Iniciar desde las imágenes originales (sin ruido inicial)
     adv_images = ori_images.clone().detach()
     
-    # eps y alpha deben estar en escala [0,1]
     eps = config.eps
     alpha = config.alpha if config.alpha is not None else eps / 10
     
@@ -204,42 +199,32 @@ def pgd_attack_batch(
         
         def compute_perceptual_loss(original: torch.Tensor, adversarial: torch.Tensor) -> torch.Tensor:
             """Compute perceptual difference using feature extraction."""
-            # Use early layers of your model as feature extractor
             return F.mse_loss(original, adversarial)
         
-        # In pgd_attack_batch, modify the loss:
         if targeted and target_labels is not None:
             attack_loss = -loss_fn(outputs, target_labels.to(device))
         else:
             attack_loss = loss_fn(outputs, labels)
 
-        # Add perceptual penalty
         perceptual_penalty = compute_perceptual_loss(ori_images, adv_images)
-        loss = attack_loss + 0.1 * perceptual_penalty  # Weight the penalty
-        
-        # Calcular gradiente
+        loss = attack_loss + 0.1 * perceptual_penalty  
+      
         model.zero_grad()
         loss.backward()
         grad = adv_images.grad.data  # (B,C,H,W)
 
-        # Optionally smooth the gradient to reduce high-frequency color bands
         if config.grad_blur_sigma and config.grad_blur_sigma > 0:
-            # choose kernel roughly = 6*sigma -> kernel_size odd
             ks = max(3, int(6 * config.grad_blur_sigma) | 1)
             grad = smooth_grad_torch(grad, kernel_size=ks, sigma=config.grad_blur_sigma)
 
-        # Update using sign of gradient
         with torch.no_grad():
             adv_images = adv_images + alpha * grad.sign()
             
-            # Proyectar a la bola epsilon
             perturbation = adv_images - ori_images
             perturbation = apply_low_pass_filter(perturbation, cutoff_ratio=0.7)
             saliency_mask = compute_saliency_mask(ori_images)
-            perturbation = perturbation * saliency_mask  # Apply before clamping
+            perturbation = perturbation * saliency_mask  
             perturbation = torch.clamp(perturbation, -eps, eps)
             adv_images = ori_images + perturbation
-            
-            # NO hacer clamp adicional aquí, ya que estamos en espacio normalizado
     
     return adv_images.detach()
