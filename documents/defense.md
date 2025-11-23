@@ -300,28 +300,30 @@ After completing adversarial training on the ResNet-50 model with the EuroSAT sa
 - F1-score: **0.2648**
 
 
-#### Experiment 2: Curriculum Adversarial Training (CAT)
+#### Experiment 3: Curriculum Adversarial Training (CAT)
 
 **Configuration:**
-- epochs: 30
-- CAT: 
-    - epoch 1–5: 	iters = 5–10	eps = 1/255     alpha=eps/4     blur = 2.0
-    - epoch 6–15:   iters = 20–30	eps = 4/255	    alpha=eps/10    blur = 1.0
-    - epoch 16–30	iters = 40–50	eps = 8/255	    alpha=eps/20    blur = 0.5
+- epochs: 20
 - Data augmentation
+- CAT: 
+    - **epoch 1–5**: 	iters = 5–10	eps = 1/255     alpha=eps/4     blur = 2.0
+    - **epoch 6–10**:   iters = 20–30	eps = 2/255	    alpha=eps/6    blur = 2.0
+    - **epoch 10–20**:	iters = 30-40	eps = 4/255	    alpha=eps/10    blur = 2.0
+- Fraction of each training batch is adversarial examples (`adv_frac` = 0.75)
+- Simple FGSM for warm-up (warm-ip epochs = 2)
 
 **Results - Clean Test Data:**
-- Accuracy: **99.48%**
-- Loss: **0.0160**
-- Precision: **0.9946**
-- Recall: **0.9944**
-- F1-score: **0.9945**
+- Accuracy: **99.54%**
+- Loss: **0.0173**
+- Precision: **0.9953**
+- Recall: **0.9949**
+- F1-score: **0.9951**
 
 **Results - Adversarial Test Data:**
-- Accuracy: **36.00%**
-- Loss: **3.0344**
-- Precision: **0.2282**
-- Recall: **0.3417**
-- F1-score: **0.2648**
+- Accuracy: **48.00%**
+- Loss: **4.9159**
+- Precision: **0.2602**
+- Recall: **0.4333**
+- F1-score: **0.3132**
 
 ---
